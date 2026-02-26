@@ -1,0 +1,99 @@
+#Conversión y organización de datos al formato BIDS
+
+
+import os, re, gzip, shutil, json
+from pathlib import Path
+
+# Ruta raíz del dataset
+root = Path("/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/bids (copia sujetos)")
+
+# ---------------------------
+# Compresión de archivos NIfTI
+# ---------------------------
+def compress_nifti(path: Path) -> Path:
+    if path.suffix == ".gz":
+        return path
+    if path.suffix == ".nii":
+        gz_path = path.with_suffix(".nii.gz")
+        with open(path, "rb") as f_in, gzip.open(gz_path, "wb", compresslevel=6) as f_out:
+            shutil.copyfileobj(f_in, f_out)
+        path.unlink()
+        return gz_path
+    return path
+
+# ---------------------------
+# Normalización del nombre de la tarea
+# ---------------------------
+def norm_task(raw: str) -> str:
+    raw = raw.lower().replace("resposo", "reposo")
+    mapping = {
+        "reposo": "rest",
+        "tarea1": "tarea1",
+        "tarea2": "tarea2"
+    }
+    return mapping.get(raw, raw)
+
+# ---------------------------
+# Procesamiento de los sujetos
+# ---------------------------
+for subdir in sorted(root.glob("sub-*")):
+    subj = subdir.name
+    print(f"Procesando {subj}")
+
+    # ---------------------------
+    # Procesamiento de imágenes anatómicas T1
+    # ---------------------------
+    anat_dir = subdir / "anat"
+    if anat_dir.exists():
+        for f in anat_dir.iterdir():
+            if "T1" in f.name:
+                if f.suffix in [".nii", ".gz"]:
+                    gz = compress_nifti(f)
+                    dst = anat_dir / f"{subj}_T1w.nii.gz"
+                    gz.rename(dst)
+                elif f.suffix == ".json":
+                    dst = anat_dir / f"{subj}_T1w.json"
+                    f.rename(dst)
+
+    # ---------------------------
+    # Procesamiento de las imágenes funcionales BOLD
+    # ---------------------------
+    func_dir = subdir / "func"
+    if func_dir.exists():
+        for f in list(func_dir.iterdir()):
+
+            if f.suffix not in [".nii", ".gz", ".json"]:
+                continue
+
+            m = re.match(rf"{subj}_(FE|SE)_(.+)\.(nii(\.gz)?|json)$", f.name)
+
+            if m:
+                acq = m.group(1)
+                rawtask = m.group(2)
+                task = norm_task(rawtask)
+
+                stem = f"{subj}_task-{task}_acq-{acq}_bold"
+
+                if f.suffix == ".json":
+                    dst = func_dir / f"{stem}.json"
+                    f.rename(dst)
+                else:
+                    gz = compress_nifti(f)
+                    dst = func_dir / f"{stem}.nii.gz"
+                    gz.rename(dst)
+
+# ---------------------------
+# Creación del dataset_description.json
+# ---------------------------
+dd = root / "dataset_description.json"
+
+if not dd.exists():
+    with open(dd, "w") as fp:
+        json.dump({
+            "Name": "2025-tesis-sofia-federica",
+            "BIDSVersion": "1.9.0",
+            "DatasetType": "raw",
+            "Authors": ["Equipo UNC"]
+        }, fp, indent=2)
+
+print("Listo 🚀")
