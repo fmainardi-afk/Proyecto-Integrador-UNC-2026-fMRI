@@ -1,0 +1,95 @@
+#Análisis estadístico t-pareado sobre  resultados de MRIQC
+
+import pandas as pd
+import numpy as np
+from scipy.stats import ttest_rel
+import os
+import re
+
+# ---------------------------
+# Definición de directorios
+# ---------------------------
+input_dir = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/MRIQC/T_pareado/Input"
+output_dir = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/MRIQC/T_pareado/Output"
+
+fe_file = os.path.join(input_dir, "group_bold_FE.tsv")
+se_file = os.path.join(input_dir, "group_bold_SE.tsv")
+
+os.makedirs(output_dir, exist_ok=True)
+
+# ---------------------------
+# Selección de métricas de calidad
+# ---------------------------
+metrics = ["fd_mean", "fd_num", "tsnr", "snr", "efc"]
+
+# ---------------------------
+# Carga de archivos TSV (MRIQC)
+# ---------------------------
+fe = pd.read_csv(fe_file, sep="\t")
+se = pd.read_csv(se_file, sep="\t")
+
+# ---------------------------
+# Extracción del identificador de sujeto
+# ---------------------------
+def extract_subject(bids_name):
+    match = re.search(r"sub-([a-zA-Z0-9]+)", bids_name)
+    return match.group(1) if match else None
+
+fe["subject"] = fe["bids_name"].apply(extract_subject)
+se["subject"] = se["bids_name"].apply(extract_subject)
+
+# ---------------------------
+# Promedio de métricas por sujeto
+# ---------------------------
+fe_subj = fe.groupby("subject")[metrics].mean()
+se_subj = se.groupby("subject")[metrics].mean()
+
+# ---------------------------
+# Selección de sujetos pareados (presentes en ambas secuencias)
+# ---------------------------
+common_subjects = fe_subj.index.intersection(se_subj.index)
+
+fe_subj = fe_subj.loc[common_subjects]
+se_subj = se_subj.loc[common_subjects]
+
+# ---------------------------
+# Prueba t pareada (SE vs FE)
+# ---------------------------
+rows = []
+
+for m in metrics:
+    se_vals = se_subj[m].values
+    fe_vals = fe_subj[m].values
+
+    t, p = ttest_rel(se_vals, fe_vals)
+
+    mean_se = np.mean(se_vals)
+    mean_fe = np.mean(fe_vals)
+
+    if mean_se > mean_fe:
+        direction = "SE > FE"
+    else:
+        direction = "FE > SE"
+
+    rows.append({
+        "Métrica": m,
+        "Media SE": round(mean_se, 3),
+        "Media FE": round(mean_fe, 3),
+        "t": round(t, 2),
+        "p-value": f"{p:.2e}",
+        "Dirección del efecto": direction
+    })
+
+# ---------------------------
+# Creación de tabla de resultados
+# ---------------------------
+results = pd.DataFrame(rows)
+
+# ---------------------------
+# Guardado de resultados en archivo TSV
+# ---------------------------
+output_file = os.path.join(output_dir, "Tabla_T_pareado_FE_vs_SE.tsv")
+results.to_csv(output_file, sep="\t", index=False)
+
+print("Tabla guardada en:")
+print(output_file)
