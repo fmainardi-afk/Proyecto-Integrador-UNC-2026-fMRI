@@ -1,0 +1,113 @@
+# Control de preprocesamiento de imágenes
+# Superposición de máscara funcional sobre plantilla estructural (figuras en formato PNG)
+
+
+# ============================================
+# 1) Importación de librerías necesarias
+# ============================================
+
+import os, glob
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from nilearn.image import load_img, mean_img
+from nilearn import plotting
+
+
+# ============================================
+# 2) Definición de rutas (T1, BOLD y carpeta de salida)
+# ============================================
+
+structural_img_path = r"/home/usuario/disco2/toolboxes/matlab/spm12/canonical/avg152T1.nii"
+functional_images_path = r"/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Resultados/fmriprep/sub-012/sub-012_FE/sub-012/func"
+output_dir = r"/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Resultados/Fotos/sub-012"
+os.makedirs(output_dir, exist_ok=True)
+
+
+# ============================================
+# 3) Carga de imagen estructural
+# ============================================
+
+structural_img = load_img(structural_img_path)
+
+
+# ============================================
+# 4) Búsqueda de imágenes funcionales BOLD
+# ============================================
+
+functional_img_paths = sorted(glob.glob(
+    os.path.join(functional_images_path, "*_desc-preproc_bold.nii.gz")
+))
+
+if not functional_img_paths:
+    functional_img_paths = sorted(glob.glob(
+        os.path.join(functional_images_path, "*_bold.nii.gz")
+    ))
+
+print(f"[INFO] Encontrados: {len(functional_img_paths)} archivos BOLD")
+
+if not functional_img_paths:
+    print("[INFO] Contenido de la carpeta func:", os.listdir(functional_images_path))
+
+
+# ============================================
+# 5) Procesamiento de cada archivo funcional
+# ============================================
+
+for func_img_path in functional_img_paths:
+
+    print("[PROC]", func_img_path)
+
+    functional_img = load_img(func_img_path)
+
+    # 6) Cálculo de la imagen promedio (media temporal)
+    mean_func_img = mean_img(functional_img)
+
+    # 7) Búsqueda y carga de la máscara cerebral asociada
+    mask_img_path = func_img_path.replace(
+        "_desc-preproc_bold.nii.gz",
+        "_desc-brain_mask.nii.gz"
+    )
+
+    if not os.path.exists(mask_img_path):
+        print(f"[WARN] No se encontró mask: {mask_img_path}")
+        continue
+
+    mask_img = load_img(mask_img_path)
+
+
+    # 8) Preparación del nombre de salida
+    title_prefix = os.path.basename(func_img_path).split("_space")[0]
+    output_file = os.path.join(
+        output_dir,
+        os.path.basename(func_img_path).replace(".nii.gz", "_nilearn_subplot.png")
+    )
+
+
+    # 9) Generación de figura (BOLD promedio + máscara)
+    fig, axes = plt.subplots(2, 1, figsize=(8, 12))
+
+    plotting.plot_glass_brain(mean_func_img,
+                              title=f"BOLD: {title_prefix}",
+                              display_mode='ortho',
+                              threshold=1.0,
+                              axes=axes[0],
+                              colorbar=False)
+
+    plotting.plot_stat_map(mask_img,
+                           bg_img=structural_img,
+                           title=f"Mask: {title_prefix}",
+                           display_mode='ortho',
+                           cut_coords=(0, 0, 0),
+                           threshold=0,
+                           axes=axes[1],
+                           colorbar=False,
+                           cmap='autumn',
+                           alpha=0.5)
+
+
+    # 10) Guardado de la figura en PNG
+    fig.savefig(output_file, bbox_inches='tight', dpi=150)
+    plt.close(fig)
+
+    print(f"[OK] Guardado: {output_file}")
