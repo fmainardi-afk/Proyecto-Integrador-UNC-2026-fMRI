@@ -1,0 +1,122 @@
+% Implementación de CAT12 sobre imágenes T1
+
+
+ ---------------------------
+% Inicialización del entorno
+% ---------------------------
+clear
+clc
+
+% ---------------------------
+% Definición del directorio de imágenes T1
+% ---------------------------
+direc = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/CAT12/T1';
+
+Images = {};
+cont = 1;
+
+cd(direc)
+sublist = dir('sub*');
+
+% ---------------------------
+% Listado de sujetos
+% ---------------------------
+for iSub = 1:length(sublist)
+    disp(['Listing subject ', num2str(iSub), ', ', sublist(iSub).name])
+
+    Images{cont} = fullfile(pwd,sublist(iSub).name);
+    cont = cont + 1;
+end
+
+%%
+% ---------------------------
+% Configuración del procesamiento en CAT12
+% ---------------------------
+
+matlabbatch{1}.spm.tools.cat.estwrite.data = Images';
+matlabbatch{1}.spm.tools.cat.estwrite.data_wmh = {''};
+matlabbatch{1}.spm.tools.cat.estwrite.nproc = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.useprior = '';
+
+% ---------------------------
+% Parámetros generales de segmentación
+% ---------------------------
+matlabbatch{1}.spm.tools.cat.estwrite.opts.tpm = {'/home/usuario/disco2/toolboxes/matlab/spm12/tpm/TPM.nii'};
+matlabbatch{1}.spm.tools.cat.estwrite.opts.affreg = 'mni';
+matlabbatch{1}.spm.tools.cat.estwrite.opts.biasacc = 0.5;
+
+% ---------------------------
+% Opciones extendidas de normalización y registro
+% ---------------------------
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.restypes.optimal = [1 0.3];
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.setCOM = 1;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.APP = 1070;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.affmod = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.spm_kamap = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASstr = 0.5;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.LASmyostr = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.gcutstr = 2;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.WMHC = 2;
+
+% ---------------------------
+% Parámetros de registro (Shooting)
+% ---------------------------
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.shootingtpm = {
+    '/home/usuario/disco2/toolboxes/matlab/spm12/toolbox/cat12/templates_MNI152NLin2009cAsym/Template_0_GS.nii'};
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.registration.shooting.regstr = 0.5;
+
+% ---------------------------
+% Resolución espacial y bounding box
+% ---------------------------
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.vox = 1.5;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.bb = 12;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.SRP = 22;
+matlabbatch{1}.spm.tools.cat.estwrite.extopts.ignoreErrors = 1;
+
+% ---------------------------
+% Configuración de atlas personalizado
+% ---------------------------
+matlabbatch{1}.spm.tools.cat.estwrite.output.ROImenu.atlases.ownatlas = {
+    '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/CAT12/atlas,1'
+    };
+
+% ---------------------------
+% Configuración de salidas (GM y WM moduladas)
+% ---------------------------
+matlabbatch{1}.spm.tools.cat.estwrite.output.GM.native = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.output.GM.mod = 1;
+matlabbatch{1}.spm.tools.cat.estwrite.output.GM.dartel = 0;
+
+matlabbatch{1}.spm.tools.cat.estwrite.output.WM.native = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.output.WM.mod = 1;
+matlabbatch{1}.spm.tools.cat.estwrite.output.WM.dartel = 0;
+
+% ---------------------------
+% Configuración de otras salidas (desactivadas)
+% ---------------------------
+matlabbatch{1}.spm.tools.cat.estwrite.output.CSF.native = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.output.ct.native = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.output.pp.native = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.output.WMH.native = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.output.SL.native = 0;
+matlabbatch{1}.spm.tools.cat.estwrite.output.TPMC.native = 0;
+
+% ---------------------------
+% Salidas de etiquetas y corrección de bias
+% ---------------------------
+matlabbatch{1}.spm.tools.cat.estwrite.output.label.native = 1;
+matlabbatch{1}.spm.tools.cat.estwrite.output.labelnative = 1;
+matlabbatch{1}.spm.tools.cat.estwrite.output.bias.warped = 1;
+
+% ---------------------------
+% Parámetros de deformación
+% ---------------------------
+matlabbatch{1}.spm.tools.cat.estwrite.output.warps = [1 0];
+matlabbatch{1}.spm.tools.cat.estwrite.output.rmat = 0;
+
+%%
+% ---------------------------
+% Ejecución del procesamiento en SPM/CAT12
+% ---------------------------
+spm('defaults', 'FMRI');
+spm_jobman('run', matlabbatch);
