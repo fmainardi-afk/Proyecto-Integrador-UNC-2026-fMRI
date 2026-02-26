@@ -1,0 +1,139 @@
+% ============================================
+
+% Presentación de tareas experimentales: 12 bloques (6 visual, 3 izq, 3 der)
+
+% ============================================
+
+clear
+Screen('Preference', 'SkipSyncTests', 1);
+AssertOpenGL;
+KbName('UnifyKeyNames'); 
+% -----------------------------
+% PARÁMETROS TEMPORALES Y ESTÍMULOS
+% -----------------------------
+TR = 3.0;                  % Duración de un TR en segundos
+% TR * 10 * 12 seis min 
+TRs_por_bloque = 10;       % TRs por bloque
+duracion_bloque = TR * TRs_por_bloque;
+frecuencia_reversion = 8; % Hz checker
+
+gris = 228;
+tamano_cuadro = 20;
+
+% -----------------------------
+% CONFIGURACIÓN DE PANTALLA
+% -----------------------------
+win_ancho = 800;
+win_alto  = 600;
+rect_debug = [100 100 100 + win_ancho, 100 + win_alto];
+% [win, winRect] = Screen('OpenWindow', max(Screen('Screens')), gris, rect_debug);
+[win, winRect] = Screen('OpenWindow', max(Screen('Screens')), gris);
+[xCenter, yCenter] = RectCenter(winRect);
+Screen('TextSize', win, 100);
+HideCursor;
+
+ifi = Screen('GetFlipInterval', win);
+slack = ifi / 2;
+flip_interval = 1 / frecuencia_reversion;
+
+% -----------------------------
+% ESPERA DEL TRIGGER INICIAL
+% -----------------------------
+DrawFormattedText(win, 'Pronto comienza', 'center', 'center', 0);
+Screen('Flip', win);
+
+trigger_tecla = KbName('5%');
+while true
+    [keyIsDown, ~, keyCode] = KbCheck;
+    if keyIsDown
+        if keyCode(trigger_tecla)
+            break;
+        elseif strcmp(KbName(keyCode), 'esc')
+            disp('Abortado antes de comenzar.');
+            ShowCursor; Screen('CloseAll'); return;
+        end
+    end
+end
+
+% -----------------------------
+% PREPARAR TEXTURAS VISUALES
+% -----------------------------
+n_cols = ceil(win_ancho / tamano_cuadro);
+n_rows = ceil(win_alto / tamano_cuadro);
+checker_base = repmat([0 255; 255 0], ceil(n_rows/2), ceil(n_cols/2));
+checker_base = checker_base(1:n_rows, 1:n_cols);
+checker1 = imresize(checker_base, [win_alto win_ancho], 'nearest');
+checker2 = 255 - checker1;
+tex1 = Screen('MakeTexture', win, checker1);
+tex2 = Screen('MakeTexture', win, checker2);
+
+% -----------------------------
+% GENERAR SECUENCIA B5ALANCEADA
+% -----------------------------
+tipos_visual = repmat(1, 1, 6);
+tipos_izq = repmat(2, 1, 3);
+tipos_der = repmat(3, 1, 3);
+secuencia = [tipos_visual tipos_izq tipos_der];
+secuencia = secuencia(randperm(length(secuencia)));  % CORREGIDO
+
+timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+
+nombre = 'LuS_SETarea2'
+save(['secuencia_fmri_',nombre, timestamp '.mat'], 'secuencia', 'TR', 'TRs_por_bloque');
+
+% -----------------------------
+% INICIAR CONTEO GLOBAL (TIEMPO CERO)
+% -----------------------------
+DrawFormattedText(win, '+', 'center', 'center', 0);
+vbl = Screen('Flip', win);
+inicio = vbl;
+
+% -----------------------------
+% PRESENTACIÓN DE BLOQUES CON TIEMPO ABSOLUTO
+% -----------------------------
+for i = 1:length(secuencia)
+    tipo = secuencia(i);
+    target_onset = inicio + (i - 1) * duracion_bloque;
+
+    % Esperar hasta el momento de inicio del bloque
+    while (GetSecs - inicio) < ((i - 1) * duracion_bloque)
+        [keyIsDown, ~, keyCode] = KbCheck;
+        if keyIsDown && strcmp(KbName(keyCode), 'esc')
+            disp('Cancelado antes del bloque.');
+            ShowCursor; Screen('CloseAll'); return;
+        end
+    end
+
+    % Mostrar según tipo
+    switch tipo
+        case 1  % Checkerboard con flips continuos
+            vbl_bloque = Screen('Flip', win, target_onset - slack);
+            bloque_inicio = vbl_bloque;
+            while GetSecs - bloque_inicio < duracion_bloque
+                if mod(floor((GetSecs - bloque_inicio) * frecuencia_reversion), 2) == 0
+                    Screen('DrawTexture', win, tex1, [], []);
+                else
+                    Screen('DrawTexture', win, tex2, [], []);
+                end
+                [keyIsDown, ~, keyCode] = KbCheck;
+                if keyIsDown & strcmp(KbName(keyCode), 'esc')
+                    disp('Cancelado.');
+                    ShowCursor; Screen('CloseAll'); return;
+                end
+                vbl_bloque = Screen('Flip', win, vbl_bloque + flip_interval - slack);
+            end
+
+        case {2, 3}  % Flecha estática (una vez)
+            flecha = '<<<'; if tipo == 3, flecha = '>>>'; end
+            DrawFormattedText(win, flecha, 'center', 'center', 0);
+            Screen('Flip', win, target_onset - slack);
+            WaitSecs(duracion_bloque);
+    end        
+
+    5
+    
+    
+end
+GetSecs() - inicio
+Screen('CloseAll');
+ShowCursor;
