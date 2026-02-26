@@ -96,4 +96,4 @@ if not dd.exists():
             "Authors": ["Equipo UNC"]
         }, fp, indent=2)
 
-print("Listo 🚀")
+print("Listo")
