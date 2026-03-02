@@ -1,5 +1,6 @@
 % =========================================================
-% Análisis de Segundo Nivel con SPM – (One-sample t-test)
+% Análisis de Segundo Nivel con SPM – (One-sample t-test).  Incluye especificación, estimación y contrastes.
+% Implementación para un solo contraste. Luego se repite para cada contraste originado en el análisis de primer nivel.
 % =========================================================
 
 clear; clc;
