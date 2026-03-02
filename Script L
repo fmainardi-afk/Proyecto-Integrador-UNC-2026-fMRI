@@ -1,0 +1,21 @@
+% ==========================================================
+% Visualizar un mapa spmT en xjView
+% ==========================================================
+
+clear; clc;
+
+% 1) CONFIGURACIÓN GENERAL
+OUT_2ND = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/VOXEL-ROI/Output/Resultados_grupal/nivel2_FE';
+spmT_file = fullfile(OUT_2ND, 'spmT_0001.nii');
+
+if exist(spmT_file,'file') ~= 2
+    error('No se encontró el archivo spmT: %s', spmT_file);
+end
+
+% 2) CONFIGURACIÓN DE XJVIEW
+addpath('/home/usuario/toolboxes/xjView');
+
+% 3) APERTURA DEL MAPA ESTADÍSTICO
+xjview(spmT_file);
+
+disp('=== xjView abierto con el mapa spmT_0001.nii ===');
