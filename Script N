@@ -1,0 +1,83 @@
+% ==========================================================
+% NIVEL 2 – ONE-SAMPLE T-TEST 
+% Implementación de SPM para análisis estadístico sobre mapas de conectividad
+% ==========================================================
+
+clear; clc;
+
+spm('Defaults','fMRI');
+spm_jobman('initcfg');
+
+% ===============================
+% DIRECTORIOS
+% ===============================
+data_dir = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/Output/todos_SE';
+out_dir  = fullfile(data_dir,'nivel2_SE');
+
+if ~exist(out_dir,'dir')
+    mkdir(out_dir);
+end
+
+% ===============================
+% SUJETOS (1–12 excluyendo 1 y 10)
+% ===============================
+subs = setdiff(1:12, [1 10]);
+scans = {};
+
+for i = 1:numel(subs)
+
+    f = dir(fullfile(data_dir, ...
+        sprintf('sub-%03d*_seedcorr_r.nii', subs(i))));
+
+    if isempty(f)
+        error('No se encontró mapa para sub-%03d', subs(i));
+    end
+
+    scans{end+1,1} = fullfile(data_dir, [f(1).name ',1']);
+end
+
+% ===============================
+% DISEÑO FACTORIAL – ONE SAMPLE
+% ===============================
+matlabbatch{1}.spm.stats.factorial_design.dir = {out_dir};
+matlabbatch{1}.spm.stats.factorial_design.des.t1.scans = scans;
+
+matlabbatch{1}.spm.stats.factorial_design.cov = struct([]);
+
+% Masking
+matlabbatch{1}.spm.stats.factorial_design.masking.tm.tm_none = 1;
+matlabbatch{1}.spm.stats.factorial_design.masking.im = 1;
+
+% Global
+matlabbatch{1}.spm.stats.factorial_design.globalc.g_omit = 1;
+matlabbatch{1}.spm.stats.factorial_design.globalm.glonorm = 1;
+
+% ===============================
+% ESTIMACIÓN DEL MODELO
+% ===============================
+matlabbatch{2}.spm.stats.fmri_est.spmmat = {fullfile(out_dir,'SPM.mat')};
+matlabbatch{2}.spm.stats.fmri_est.method.Classical = 1;
+
+% ===============================
+% CONTRASTES
+% ===============================
+matlabbatch{3}.spm.stats.con.spmmat = {fullfile(out_dir,'SPM.mat')};
+
+% Conectividad positiva
+matlabbatch{3}.spm.stats.con.consess{1}.tcon.name = 'Conectividad > 0';
+matlabbatch{3}.spm.stats.con.consess{1}.tcon.weights = 1;
+matlabbatch{3}.spm.stats.con.consess{1}.tcon.sessrep = 'none';
+
+% Conectividad negativa
+matlabbatch{3}.spm.stats.con.consess{2}.tcon.name = 'Conectividad < 0';
+matlabbatch{3}.spm.stats.con.consess{2}.tcon.weights = -1;
+matlabbatch{3}.spm.stats.con.consess{2}.tcon.sessrep = 'none';
+
+matlabbatch{3}.spm.stats.con.delete = 0;
+
+% ===============================
+% EJECUTAR
+% ===============================
+spm_jobman('run', matlabbatch);
+
+disp('=== Nivel 2 SE finalizado correctamente ===');
