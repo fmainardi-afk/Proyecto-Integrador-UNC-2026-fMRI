@@ -1,0 +1,89 @@
+% ============================================================
+% Implementación de SPM para suavizar  las imágenes funcionales
+% Suavizar es el último paso del preprocesamiento
+% ============================================================
+
+clear; clc;
+
+% 1) CONFIGURACIÓN GENERAL
+inRoot  = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/SPM/preprocesados_descomprimidos';
+outRoot = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/SPM/Suavizadas';
+FWHM    = [8 8 8];
+% addpath('/home/usuario/disco1/toolboxes/spm12');
+
+% 2) INICIALIZACIÓN Y CHEQUEOS
+if ~exist(inRoot,'dir'),  error('No existe inRoot: %s', inRoot); end
+if ~exist(outRoot,'dir'), mkdir(outRoot); end
+
+spm('defaults','fmri');
+spm_jobman('initcfg');
+
+% 3) BÚSQUEDA DE SUJETOS
+subs = dir(fullfile(inRoot,'sub-*'));
+subs = subs([subs.isdir]);
+
+fprintf('Sujeto(s) encontrados: %d\n', numel(subs));
+
+% 4) LOOP PRINCIPAL POR SUJETO
+for s = 1:numel(subs)
+
+    subID  = subs(s).name;
+    subDir = fullfile(inRoot, subID);
+
+    p1 = sprintf('%s_task-tarea1_acq-*_desc-preproc_bold.nii', subID);
+    p2 = sprintf('%s_task-tarea2_acq-*_desc-preproc_bold.nii', subID);
+
+    f1 = dir(fullfile(subDir, p1));
+    f2 = dir(fullfile(subDir, p2));
+
+    files = [f1; f2];
+
+    if isempty(files)
+        continue;
+    end
+
+    outSubDir = fullfile(outRoot, subID);
+    if ~exist(outSubDir,'dir'), mkdir(outSubDir); end
+
+    % 5) LOOP POR ARCHIVO
+    for k = 1:numel(files)
+
+        inPath = fullfile(subDir, files(k).name);
+
+        if ~isempty(strfind(files(k).name, 'task-rest'))
+            continue;
+        end
+
+        [~, base, ext] = fileparts(inPath);
+        sName  = ['s' base ext];
+        outPath = fullfile(outSubDir, sName);
+
+        if exist(outPath,'file')
+            continue;
+        end
+
+        % 6) SUAVIZADO ESPACIAL CON SPM
+        matlabbatch = [];
+        matlabbatch{1}.spm.spatial.smooth.data   = {inPath};
+        matlabbatch{1}.spm.spatial.smooth.fwhm   = FWHM;
+        matlabbatch{1}.spm.spatial.smooth.dtype  = 0;
+        matlabbatch{1}.spm.spatial.smooth.im     = 0;
+        matlabbatch{1}.spm.spatial.smooth.prefix = 's';
+
+        try
+            spm_jobman('run', matlabbatch);
+        catch
+            continue;
+        end
+
+        sInPath = fullfile(subDir, sName);
+
+        if ~exist(sInPath,'file')
+            continue;
+        end
+
+        copyfile(sInPath, outPath);
+    end
+end
+
+fprintf('\nListo. Suavizadas en: %s\n', outRoot);
