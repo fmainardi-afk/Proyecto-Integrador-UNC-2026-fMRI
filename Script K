@@ -1,0 +1,79 @@
+% =========================================================
+% Análisis de Segundo Nivel con SPM – (One-sample t-test)
+% =========================================================
+
+clear; clc;
+
+% 1) CONFIGURACIÓN GENERAL
+base = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/SPM';
+
+firstLevelBase  = fullfile(base,'analisis_1er_nivel');
+secondLevelBase = fullfile(base,'analisis_2do_nivel');
+
+modality  = 'FE';
+conName   = 'con_0001.nii';
+modelName = 'con0001_FE_grupoB';
+
+subs = [5 6 7 8 9 12];
+
+outDir = fullfile(secondLevelBase, modality, modelName);
+if ~exist(outDir,'dir'), mkdir(outDir); end
+
+% 2) ARMADO DE LISTA DE CONTRASTES
+scans = {};
+fprintf('Armando lista de %s para %s...\n', conName, modality);
+
+for s = subs
+    subj = sprintf('sub-%03d', s);
+    conFile = fullfile(firstLevelBase, subj, modality, conName);
+
+    if exist(conFile,'file') ~= 2
+        continue;
+    end
+
+    scans{end+1,1} = conFile; %#ok<AGROW>
+end
+
+if numel(scans) < 2
+    error('Hay menos de 2 contrastes disponibles.');
+end
+
+fprintf('\nTotal sujetos incluidos en 2do nivel: %d\n', numel(scans));
+
+spm('defaults','fmri');
+spm_jobman('initcfg');
+
+% 3) ESPECIFICACIÓN DEL MODELO (2º NIVEL)
+matlabbatch = {};
+matlabbatch{1}.spm.stats.factorial_design.dir = {outDir};
+matlabbatch{1}.spm.stats.factorial_design.des.t1.scans = scans;
+
+matlabbatch{1}.spm.stats.factorial_design.cov = struct('c', {}, 'cname', {}, 'iCFI', {}, 'iCC', {});
+matlabbatch{1}.spm.stats.factorial_design.masking.tm.tm_none = 1;
+matlabbatch{1}.spm.stats.factorial_design.masking.im = 1;
+matlabbatch{1}.spm.stats.factorial_design.masking.em = {''};
+matlabbatch{1}.spm.stats.factorial_design.globalc.g_omit = 1;
+matlabbatch{1}.spm.stats.factorial_design.globalm.gmsca.gmsca_no = 1;
+matlabbatch{1}.spm.stats.factorial_design.globalm.glonorm = 1;
+
+spm_jobman('run', matlabbatch);
+
+% 4) ESTIMACIÓN DEL MODELO
+matlabbatch = {};
+matlabbatch{1}.spm.stats.fmri_est.spmmat = {fullfile(outDir,'SPM.mat')};
+matlabbatch{1}.spm.stats.fmri_est.method.Classical = 1;
+spm_jobman('run', matlabbatch);
+
+% 5) CONTRASTE GRUPAL
+matlabbatch = {};
+matlabbatch{1}.spm.stats.con.spmmat = {fullfile(outDir,'SPM.mat')};
+
+matlabbatch{1}.spm.stats.con.consess{1}.tcon.name    = 'FE GrupoB > 0';
+matlabbatch{1}.spm.stats.con.consess{1}.tcon.weights = 1;
+matlabbatch{1}.spm.stats.con.consess{1}.tcon.sessrep = 'none';
+matlabbatch{1}.spm.stats.con.delete = 1;
+
+spm_jobman('run', matlabbatch);
+
+fprintf('\nLISTO: 2do nivel FE terminado.\n');
+fprintf('Output: %s\n', outDir);
