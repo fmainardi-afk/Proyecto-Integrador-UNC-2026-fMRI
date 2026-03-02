@@ -1,0 +1,94 @@
+% ============================================================
+% Cálculo y generación de archivos de sincronización: onsets y duraciones de bloques de tarea para cada sujeto
+% ============================================================
+
+clear; clc;
+
+% 1) CONFIGURACIÓN GENERAL
+seqRoot = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/SPM/secuencias';
+outRoot = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/SPM/Timing';
+
+if ~exist(seqRoot,'dir')
+    error('No existe la carpeta de secuencias: %s', seqRoot);
+end
+
+if ~exist(outRoot,'dir')
+    mkdir(outRoot);
+end
+
+% 2) BÚSQUEDA DE SUJETOS
+subs = dir(fullfile(seqRoot, 'sub-*'));
+subs = subs([subs.isdir]);
+
+fprintf('Sujeto(s) encontrados en secuencias: %d\n', numel(subs));
+
+if isempty(subs)
+    error('No encontré sub-* dentro de: %s', seqRoot);
+end
+
+% 3) LOOP POR SUJETO
+for s = 1:numel(subs)
+
+    subID  = subs(s).name;
+    subDir = fullfile(seqRoot, subID);
+
+    matFiles = dir(fullfile(subDir, '*.mat'));
+
+    fprintf('\n%s: .mat encontrados = %d\n', subID, numel(matFiles));
+
+    if isempty(matFiles)
+        continue;
+    end
+
+    outSubDir = fullfile(outRoot, subID);
+    if ~exist(outSubDir, 'dir')
+        mkdir(outSubDir);
+    end
+
+    % 4) LOOP POR ARCHIVO .MAT
+    for k = 1:numel(matFiles)
+
+        matName = matFiles(k).name;
+        matFile = fullfile(subDir, matName);
+
+        S = load(matFile);
+
+        if ~isfield(S,'secuencia') || ~isfield(S,'TR') || ~isfield(S,'TRs_por_bloque')
+            continue;
+        end
+
+        secuencia      = S.secuencia;
+        TR             = S.TR;
+        TRs_por_bloque = S.TRs_por_bloque;
+
+        % 5) CÁLCULO DE ONSETS Y DURACIONES
+        duracion_bloque = TR * TRs_por_bloque;
+        nBloques        = numel(secuencia);
+        onsets          = (0:nBloques-1)' * duracion_bloque;
+
+        idx_visual = find(secuencia == 1);
+        idx_izq    = find(secuencia == 2);
+        idx_der    = find(secuencia == 3);
+
+        tim_visual = [ onsets(idx_visual) , duracion_bloque * ones(numel(idx_visual),1) ];
+        tim_izq    = [ onsets(idx_izq)    , duracion_bloque * ones(numel(idx_izq),1)    ];
+        tim_der    = [ onsets(idx_der)    , duracion_bloque * ones(numel(idx_der),1)    ];
+
+        tag = matName;
+        tag = strrep(tag, 'secuencia_fmri_', '');
+        tag = strrep(tag, '.mat', '');
+        tag = regexprep(tag, '\s+', '');
+
+        file_visual = fullfile(outSubDir, [subID '_' tag '_visual.txt']);
+        file_izq    = fullfile(outSubDir, [subID '_' tag '_izq.txt']);
+        file_der    = fullfile(outSubDir, [subID '_' tag '_der.txt']);
+
+        % 6) GUARDADO DE ARCHIVOS DE TIMING
+        save(file_visual, 'tim_visual', '-ascii');
+        save(file_izq,    'tim_izq',    '-ascii');
+        save(file_der,    'tim_der',    '-ascii');
+
+    end
+end
+
+fprintf('\nListo. Timing generado en: %s\n', outRoot);
