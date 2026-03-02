@@ -1,0 +1,223 @@
+# ============================================================
+# Análisis de conectividad funcional ROI-voxel
+# ============================================================
+
+import os
+import glob
+import numpy as np
+import nibabel as nib
+
+from nilearn import plotting
+from nilearn.maskers import NiftiMasker, NiftiSpheresMasker
+from nilearn.interfaces.fmriprep import load_confounds_strategy
+
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
+
+FMRIPREP_DERIV = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Resultados_preproc/fmriprep/sub-012/sub-012/func"
+OUT_DIR = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/Output/sub-012"
+
+TR = 3.0
+HIGH_PASS = 0.01
+LOW_PASS = 0.10
+
+SEED_COORDS = [(0, -52, 26)]
+SEED_RADIUS_MM = 6
+
+DENOISE_STRATEGY = "simple"
+
+PATTERN_SE = "sub-012_task-rest_acq-SE_*_desc-preproc_bold.nii.gz"
+PATTERN_FE = "sub-012_task-rest_acq-FE_*_desc-preproc_bold.nii.gz"
+
+# ============================================================
+
+def ensure_dir(path):
+    os.makedirs(path, exist_ok=True)
+
+def fisher_z_from_r_img(r_img):
+    data = r_img.get_fdata()
+    data = np.clip(data, -0.999999, 0.999999)
+    z = np.arctanh(data)
+    return nib.Nifti1Image(z, r_img.affine, r_img.header)
+
+def find_brain_mask_for_original_bold(orig_bold):
+    return orig_bold.replace(
+        "desc-preproc_bold.nii.gz",
+        "desc-brain_mask.nii.gz"
+    )
+
+def find_smoothed_from_original_bold(orig_bold):
+    """
+    De:
+        /.../sub-012_..._desc-preproc_bold.nii.gz
+    A:
+        /.../ssub-012_..._desc-preproc_bold.nii
+    """
+    directory = os.path.dirname(orig_bold)
+    base = os.path.basename(orig_bold)
+
+    base_nii = base.replace(".nii.gz", ".nii")
+    smoothed = os.path.join(directory, "s" + base_nii)
+
+    return smoothed
+
+# ============================================================
+# ANÁLISIS SEED-TO-VOXEL
+# ============================================================
+
+def run_seed_to_voxel(orig_bold_file, out_prefix):
+
+    # 1) BOLD suavizada
+    smooth_bold_file = find_smoothed_from_original_bold(orig_bold_file)
+    if not os.path.exists(smooth_bold_file):
+        raise FileNotFoundError(
+            f"No encuentro BOLD suavizada (s*): {smooth_bold_file}"
+        )
+
+    # 2) Máscara de cerebro (fMRIPrep)
+    mask_file = find_brain_mask_for_original_bold(orig_bold_file)
+    if not os.path.exists(mask_file):
+        raise FileNotFoundError(
+            f"No encuentro brain mask: {mask_file}"
+        )
+
+    # 3) Confounds desde el archivo original
+    confounds, sample_mask = load_confounds_strategy(
+        orig_bold_file,
+        denoise_strategy=DENOISE_STRATEGY
+    )
+
+    # 4) Extraer señal de la seed (BOLD suavizada)
+    seed_masker = NiftiSpheresMasker(
+        seeds=SEED_COORDS,
+        radius=SEED_RADIUS_MM,
+        detrend=True,
+        standardize="zscore_sample",
+        low_pass=LOW_PASS,
+        high_pass=HIGH_PASS,
+        t_r=TR
+    )
+
+    seed_ts = seed_masker.fit_transform(
+        smooth_bold_file,
+        confounds=confounds,
+        sample_mask=sample_mask
+    )
+
+    seed_vec = seed_ts[:, 0]
+    seed_vec = (seed_vec - seed_vec.mean()) / seed_vec.std(ddof=1)
+
+    # 5) Extraer señal voxelwise
+    brain_masker = NiftiMasker(
+        mask_img=mask_file,
+        detrend=True,
+        standardize="zscore_sample",
+        low_pass=LOW_PASS,
+        high_pass=HIGH_PASS,
+        t_r=TR
+    )
+
+    brain_ts = brain_masker.fit_transform(
+        smooth_bold_file,
+        confounds=confounds,
+        sample_mask=sample_mask
+    )
+
+    # 6) Correlación de Pearson
+    brain_ts_z = (
+        (brain_ts - brain_ts.mean(axis=0)) /
+        brain_ts.std(axis=0, ddof=1)
+    )
+
+    r_map = (brain_ts_z.T @ seed_vec) / (len(seed_vec) - 1)
+
+    # 7) Reconstruir imagen
+    r_img = brain_masker.inverse_transform(r_map)
+    z_img = fisher_z_from_r_img(r_img)
+
+    r_path = out_prefix + "_seedcorr_r.nii.gz"
+    z_path = out_prefix + "_seedcorr_z.nii.gz"
+
+    nib.save(r_img, r_path)
+    nib.save(z_img, z_path)
+
+    return r_path, z_path, smooth_bold_file, mask_file
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    ensure_dir(OUT_DIR)
+
+    seed_dir = os.path.join(OUT_DIR, "seed_maps")
+    qc_dir = os.path.join(OUT_DIR, "qc")
+
+    ensure_dir(seed_dir)
+    ensure_dir(qc_dir)
+
+    se_orig = sorted(
+        glob.glob(os.path.join(FMRIPREP_DERIV, PATTERN_SE))
+    )
+
+    fe_orig = sorted(
+        glob.glob(os.path.join(FMRIPREP_DERIV, PATTERN_FE))
+    )
+
+    print(f"Encontré {len(se_orig)} resting SE (ORIGINAL)")
+    print(f"Encontré {len(fe_orig)} resting FE (ORIGINAL)")
+
+    def process_list(orig_list, label):
+
+        for orig_bold in orig_list:
+
+            base = os.path.basename(orig_bold).replace(
+                "_desc-preproc_bold.nii.gz", ""
+            )
+
+            out_prefix = os.path.join(
+                seed_dir,
+                f"{base}_{label}"
+            )
+
+            print(f"\n[{label}] ORIGINAL:  {orig_bold}")
+
+            r_path, z_path, smooth_bold, mask_file = \
+                run_seed_to_voxel(orig_bold, out_prefix)
+
+            print(f"[{label}] SUAVIZADA usada: {smooth_bold}")
+            print(f"[{label}] MÁSCARA usada:    {mask_file}")
+            print(f"[{label}] Guardado r-map:   {r_path}")
+            print(f"[{label}] Guardado z-map:   {z_path}")
+
+            # QC (escala r: -1 a 1)
+            png_path = os.path.join(
+                qc_dir,
+                f"{base}_{label}_seedcorr_r.png"
+            )
+
+            display = plotting.plot_stat_map(
+                r_path,
+                title=f"Seed DMN (r) - {base} ({label})",
+                display_mode="ortho",
+                cut_coords=SEED_COORDS[0],
+                vmin=-1,
+                vmax=1
+            )
+
+            display.savefig(png_path)
+            display.close()
+
+            print(f"[{label}] QC figura: {png_path}")
+
+    process_list(se_orig, "SE")
+    process_list(fe_orig, "FE")
+
+    print("\nListo. Mirá los PNG en qc/.")
+
+# ============================================================
+
+if __name__ == "__main__":
+    main()
