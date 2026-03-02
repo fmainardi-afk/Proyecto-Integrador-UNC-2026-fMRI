@@ -1,0 +1,130 @@
+% =========================================================
+% Análisis de Primer Nivel con SPM. Incluye especificación, estimación y contrastes.
+% Implementación para sesiones FE. Luego se repite para sesiones SE, con los cambios necesarios.
+% =========================================================
+
+clear; clc;
+
+% 1) CONFIGURACIÓN GENERAL
+TR       = 3;
+duracion = 30;
+hpf      = 128;
+
+base   = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/SPM';
+outBase = fullfile(base,'analisis_1er_nivel');
+imgBase = fullfile(base,'Suavizadas','3D-series');
+timBase = fullfile(base,'Timing');
+regBase = fullfile(base,'Regresores');
+
+subs = [8:9 12];
+
+spm('Defaults','fMRI');
+spm_jobman('initcfg');
+
+% 2) LOOP POR SUJETOS
+for s = subs
+
+    subj = sprintf('sub-%03d',s);
+    fprintf('\nProcesando %s (FE)\n',subj);
+
+    outDir = fullfile(outBase, subj, 'FE');
+    if ~exist(outDir,'dir'), mkdir(outDir); end
+
+    % 3) CARGA DE IMÁGENES
+    img1Dir = fullfile(imgBase, subj, 'FE', 'tarea1');
+    img2Dir = fullfile(imgBase, subj, 'FE', 'tarea2');
+
+    scans1 = cellstr(spm_select('FPList', img1Dir, '\.nii$'));
+    scans2 = cellstr(spm_select('FPList', img2Dir, '\.nii$'));
+
+    if isempty(scans1) || isempty(scans2)
+        warning('%s: faltan imágenes FE.',subj); continue;
+    end
+
+    nVol1 = numel(scans1);
+    nVol2 = numel(scans2);
+
+    % 4) CARGA DE TIMINGS
+    t1Dir = fullfile(timBase, subj, 'FE', 'tarea1');
+    t2Dir = fullfile(timBase, subj, 'FE', 'tarea2');
+
+    onV1 = load(fullfile(t1Dir,'visual.txt')); onV1 = onV1(:,1);
+    onI1 = load(fullfile(t1Dir,'izq.txt'));    onI1 = onI1(:,1);
+    onD1 = load(fullfile(t1Dir,'der.txt'));    onD1 = onD1(:,1);
+
+    onV2 = load(fullfile(t2Dir,'visual.txt')); onV2 = onV2(:,1);
+    onI2 = load(fullfile(t2Dir,'izq.txt'));    onI2 = onI2(:,1);
+    onD2 = load(fullfile(t2Dir,'der.txt'));    onD2 = onD2(:,1);
+
+    % 5) CARGA DE REGRESORES
+    rDir = fullfile(regBase, subj, 'FE');
+    reg1 = fullfile(rDir, sprintf('%s_tarea1_FE_regresor.txt', subj));
+    reg2 = fullfile(rDir, sprintf('%s_tarea2_FE_regresor.txt', subj));
+
+    R1 = load(reg1);
+    R2 = load(reg2);
+
+    if size(R1,1)~=nVol1 || size(R2,1)~=nVol2
+        warning('%s: mismatch volúmenes-regresores FE',subj); continue;
+    end
+
+    % 6) ESPECIFICACIÓN DEL MODELO (GLM)
+    matlabbatch = {};
+    matlabbatch{1}.spm.stats.fmri_spec.dir = {outDir};
+    matlabbatch{1}.spm.stats.fmri_spec.timing.units = 'secs';
+    matlabbatch{1}.spm.stats.fmri_spec.timing.RT    = TR;
+
+    % Sesión 1
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).scans = scans1;
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).cond(1).name = 'VISUAL';
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).cond(1).onset = onV1;
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).cond(1).duration = duracion;
+
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).cond(2).name = 'IZQUIERDA';
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).cond(2).onset = onI1;
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).cond(2).duration = duracion;
+
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).cond(3).name = 'DERECHA';
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).cond(3).onset = onD1;
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).cond(3).duration = duracion;
+
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).multi_reg = {reg1};
+    matlabbatch{1}.spm.stats.fmri_spec.sess(1).hpf = hpf;
+
+    % Sesión 2
+    matlabbatch{1}.spm.stats.fmri_spec.sess(2) = matlabbatch{1}.spm.stats.fmri_spec.sess(1);
+    matlabbatch{1}.spm.stats.fmri_spec.sess(2).scans = scans2;
+    matlabbatch{1}.spm.stats.fmri_spec.sess(2).cond(1).onset = onV2;
+    matlabbatch{1}.spm.stats.fmri_spec.sess(2).cond(2).onset = onI2;
+    matlabbatch{1}.spm.stats.fmri_spec.sess(2).cond(3).onset = onD2;
+    matlabbatch{1}.spm.stats.fmri_spec.sess(2).multi_reg = {reg2};
+
+    matlabbatch{1}.spm.stats.fmri_spec.bases.hrf.derivs = [0 0];
+    matlabbatch{1}.spm.stats.fmri_spec.cvi = 'AR(1)';
+
+    spm_jobman('run',matlabbatch);
+
+    % 7) ESTIMACIÓN DEL MODELO
+    matlabbatch = {};
+    matlabbatch{1}.spm.stats.fmri_est.spmmat = {fullfile(outDir,'SPM.mat')};
+    matlabbatch{1}.spm.stats.fmri_est.method.Classical = 1;
+    spm_jobman('run',matlabbatch);
+
+    % 8) DEFINICIÓN DE CONTRASTES
+    matlabbatch = {};
+    matlabbatch{1}.spm.stats.con.spmmat = {fullfile(outDir,'SPM.mat')};
+
+    matlabbatch{1}.spm.stats.con.consess{1}.tcon.name = 'Derecha > Izquierda';
+    matlabbatch{1}.spm.stats.con.consess{1}.tcon.weights = [0 -1 1];
+    matlabbatch{1}.spm.stats.con.consess{1}.tcon.sessrep = 'repl';
+
+    matlabbatch{1}.spm.stats.con.consess{2}.tcon.name = 'Motor > Visual';
+    matlabbatch{1}.spm.stats.con.consess{2}.tcon.weights = [-1 0.5 0.5];
+    matlabbatch{1}.spm.stats.con.consess{2}.tcon.sessrep = 'repl';
+
+    matlabbatch{1}.spm.stats.con.delete = 1;
+    spm_jobman('run',matlabbatch);
+
+end
+
+fprintf('\nLISTO: primer nivel FE terminado.\n');
