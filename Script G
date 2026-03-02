@@ -1,0 +1,54 @@
+%Implementación de SPM para la conversión de archivos 4D a sus series 3D
+
+
+clear
+clc
+
+% 1) CONFIGURACIÓN GENERAL
+addpath('/ruta/a/spm12')
+spm('Defaults','fMRI');
+
+baseDir    = '/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/SPM/Suavizadas';
+outBaseDir = fullfile(baseDir, '3D-series');
+
+if ~exist(outBaseDir,'dir')
+    mkdir(outBaseDir)
+end
+
+% 2) BÚSQUEDA DE SUJETOS
+subs = dir(fullfile(baseDir,'sub-*'));
+
+% 3) LOOP PRINCIPAL POR SUJETO
+for s = 1:numel(subs)
+
+    if ~subs(s).isdir, continue; end
+
+    subName = subs(s).name;
+    subDir  = fullfile(baseDir, subName);
+
+    outSubDir = fullfile(outBaseDir, subName);
+    if ~exist(outSubDir,'dir')
+        mkdir(outSubDir)
+    end
+
+    niiFiles = dir(fullfile(subDir,'*.nii'));
+
+    % 4) LOOP POR ARCHIVO
+    for f = 1:numel(niiFiles)
+
+        niiPath = fullfile(subDir, niiFiles(f).name);
+
+        [~, baseName] = fileparts(niiFiles(f).name);
+        outSeriesDir = fullfile(outSubDir, baseName);
+        if ~exist(outSeriesDir,'dir')
+            mkdir(outSeriesDir)
+        end
+
+        % 5) SPLIT 4D → SERIES 3D CON SPM
+        matlabbatch = [];
+        matlabbatch{1}.spm.util.split.vol    = {niiPath};
+        matlabbatch{1}.spm.util.split.outdir = {outSeriesDir};
+
+        spm_jobman('run', matlabbatch);
+    end
+end
