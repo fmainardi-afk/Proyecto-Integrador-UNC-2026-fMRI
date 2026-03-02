@@ -1,0 +1,44 @@
+%% Extracción de regresores de movimiento (fMRIPrep -> SPM)
+
+clear; clc;
+
+% 1) CONFIGURACIÓN GENERAL
+confounds_file = ...
+'/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Resultados/fmriprep/sub-012/sub-012/func/sub-012_task-tarea2_acq-SE_desc-confounds_timeseries.tsv';
+
+output_dir = ...
+'/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/SPM/Regresores';
+
+output_txt = fullfile(output_dir, 'sub-012_tarea2_SE_regresor.txt');
+
+if ~exist(output_dir, 'dir')
+    mkdir(output_dir);
+end
+
+% 2) LECTURA DEL ARCHIVO DE CONFOUNDS
+T = readtable(confounds_file, ...
+              'FileType', 'text', ...
+              'Delimiter', '\t');
+
+% 3) DEFINICIÓN DE REGRESORES DE MOVIMIENTO
+motion_cols = { ...
+    'trans_x', 'trans_y', 'trans_z', ...
+    'rot_x',   'rot_y',   'rot_z'};
+
+for i = 1:numel(motion_cols)
+    if ~ismember(motion_cols{i}, T.Properties.VariableNames)
+        error('Columna faltante en confounds: %s', motion_cols{i});
+    end
+end
+
+% 4) EXTRACCIÓN Y LIMPIEZA DE DATOS
+motion = T{:, motion_cols};
+motion(isnan(motion)) = 0;
+
+% 5) GUARDADO DEL ARCHIVO PARA SPM
+dlmwrite(output_txt, motion, ...
+         'delimiter', ' ', ...
+         'precision', '%.8f');
+
+fprintf('Archivo de movimiento generado correctamente:\n%s\n', output_txt);
+fprintf('Filas: %d | Columnas: %d\n', size(motion,1), size(motion,2));
