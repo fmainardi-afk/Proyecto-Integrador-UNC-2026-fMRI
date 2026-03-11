@@ -1,0 +1,165 @@
+# Denoising y extracción de series temporales por ROI 
+
+import os
+import re
+import glob
+import json
+import nibabel as nib
+import pandas as pd
+from scipy.io import savemat
+from nilearn.image import load_img
+from nilearn.input_data import NiftiLabelsMasker
+from nilearn.interfaces.fmriprep import load_confounds
+
+
+# =============================================================
+# FUNCIONES AUXILIARES
+# Estas funciones ayudan a: extraer entidades BIDS del nombre de archivo, buscar archivos JSON de metadatos y determinar el TR de los BOLDs.
+# =============================================================
+
+def _parse_entities(fname):
+    base = os.path.basename(fname)
+    ents = {}
+    for key in ["sub", "ses", "task", "run", "acq", "rec", "dir"]:
+        m = re.search(fr"{key}-([^_]+)", base)
+        if m:
+            ents[key] = m.group(1)
+    return ents
+
+
+def _find_bids_json(bids_root, ents):
+    if not bids_root:
+        return None
+    sub = f"sub-{ents.get('sub')}"
+    ses = f"ses-{ents['ses']}" if 'ses' in ents else None
+    func_dir = os.path.join(bids_root, sub, ses, "func") if ses else os.path.join(bids_root, sub, "func")
+    if not os.path.isdir(func_dir):
+        return None
+    parts = [f"sub-{ents.get('sub')}"]
+    if 'ses' in ents: parts.append(f"ses-{ents['ses']}")
+    if 'task' in ents: parts.append(f"task-{ents['task']}")
+    if 'acq' in ents: parts.append(f"acq-{ents['acq']}")
+    if 'rec' in ents: parts.append(f"rec-{ents['rec']}")
+    if 'dir' in ents: parts.append(f"dir-{ents['dir']}")
+    if 'run' in ents: parts.append(f"run-{ents['run']}")
+    prefix = "_".join(parts)
+    candidates = glob.glob(os.path.join(func_dir, f"{prefix}_bold.json"))
+    return candidates[0] if candidates else None
+
+
+def _get_tr(nii_path, bids_root, ents):
+    js = _find_bids_json(bids_root, ents)
+    if js and os.path.exists(js):
+        try:
+            with open(js, "r") as f:
+                meta = json.load(f)
+            tr = meta.get("RepetitionTime", None)
+            if tr:
+                return float(tr)
+        except Exception:
+            pass
+    try:
+        hz = nib.load(nii_path).header.get_zooms()
+        if len(hz) >= 4 and hz[3]:
+            return float(hz[3])
+    except Exception:
+        pass
+    raise ValueError(f"No pude determinar TR para {nii_path}")
+
+
+# ====================================================================================================
+# FUNCION PRINCIPAL: Extrae series temporales de ROIs desde BOLDs preprocesados por fMRIPrep y aplica confounds
+# Guarda los resultados en archivos .mat organizados por tipo de adquisición.
+# ====================================================================================================
+
+def extract_tseries(
+    outpath,
+    fmriprep_folder,
+    atlas_path,
+    bids_root=None,
+    tasks=None
+):
+    os.makedirs(outpath, exist_ok=True)
+
+    print("1) Buscando BOLDs...")
+    bold_paths = sorted(glob.glob(os.path.join(fmriprep_folder, "*_desc-preproc_bold.nii.gz")))
+    if not bold_paths:
+        raise RuntimeError("No se encontraron BOLDs.")
+
+    print("2) Cargando atlas...")
+    atlas_img = nib.load(atlas_path)
+
+    results = []
+
+    for nii in bold_paths:
+        ents = _parse_entities(nii)
+        if tasks and ents.get('task') not in tasks:
+            continue
+        try:
+            tr = _get_tr(nii, bids_root, ents)
+            print(f"Procesando {os.path.basename(nii)} (TR={tr:.3f}s)")
+
+            masker = NiftiLabelsMasker(
+                labels_img=atlas_img,
+                standardize=True,
+                low_pass=0.1,
+                high_pass=0.01,
+                t_r=tr,
+                verbose=0
+            )
+
+            try:
+                confounds, sample_mask = load_confounds(
+                    nii,
+                    strategy=["motion", "wm_csf"],
+                    motion="derivatives",
+                    wm_csf="basic"
+                )
+            except Exception as e:
+                print(f"  Aviso: sin confounds ({e})")
+                confounds, sample_mask = None, None
+
+            img = load_img(nii)
+            ts = masker.fit_transform(img, confounds=confounds)
+
+            base_name = os.path.basename(nii)
+            base_name = re.sub(r'_desc-.*?_bold\.nii\.gz$', '', base_name)
+
+            acq_type = ents.get("acq", "UNKNOWN")
+            folder_name = acq_type.upper() if acq_type and acq_type.upper() in ["FE", "SE"] else "UNKNOWN"
+            acq_folder = os.path.join(outpath, folder_name)
+            os.makedirs(acq_folder, exist_ok=True)
+
+            out_mat = os.path.join(acq_folder, f"{base_name}_timeseries.mat")
+            savemat(out_mat, {"ts": ts})
+
+            results.append({
+                "bold": os.path.basename(nii),
+                "output": out_mat,
+                "status": "OK"
+            })
+
+        except Exception as e:
+            print(f"Error con {nii}: {e}")
+            results.append({
+                "bold": os.path.basename(nii),
+                "status": f"failed: {e}"
+            })
+
+    report = pd.DataFrame(results)
+    report.to_csv(os.path.join(outpath, "report_tseries_extraction.csv"), index=False)
+
+    print("\n✔ Extracción finalizada.")
+    return report
+
+
+# ========================
+# Rutas
+# ========================
+extract_tseries(
+    outpath="/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/ROI-ROI/series_tempo/sub-012",
+    fmriprep_folder="/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Resultados_preproc/fmriprep/sub-012/sub-012/func",
+    atlas_path="/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/ROI-ROI/atlas-funcional/ROIs_300inVol_MNI.nii",
+    bids_root="/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/DATA/bids",
+    tasks=['rest','tarea1','tarea2']
+)
