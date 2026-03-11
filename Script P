@@ -1,0 +1,64 @@
+# Cálculo de matrices de conectividad para cada sesión funcional de cada sujeto
+
+import os
+import glob
+import numpy as np
+import scipy.io as sio
+
+
+# =========================
+# Definición de paths
+# Carpetas de entrada (series temporales) y salida (matrices de correlación)
+# =========================
+
+input_root = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/ROI-ROI/series_tempo"
+output_root = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/ROI-ROI/mat_correlacion"
+os.makedirs(output_root, exist_ok=True)
+
+
+# =========================
+# Reccore por sujeto y condición para calcular matrices ROI–ROI
+# =========================
+
+subjects = sorted([d for d in os.listdir(input_root) if d.startswith("sub-")])
+for sub in subjects:
+    sub_path = os.path.join(input_root, sub)
+    print(f"\nProcesando {sub}")
+
+    subfolders = [f for f in os.listdir(sub_path) if os.path.isdir(os.path.join(sub_path, f))]
+    if not subfolders:
+        print(f"  No hay subcarpetas en {sub_path}, salteo.")
+        continue
+
+    for cond_folder in subfolders:
+        cond_path = os.path.join(sub_path, cond_folder)
+        out_cond_path = os.path.join(output_root, sub, cond_folder)
+        os.makedirs(out_cond_path, exist_ok=True)
+
+        mat_files = glob.glob(os.path.join(cond_path, "*.mat"))
+        if not mat_files:
+            print(f"  {cond_folder}: no hay archivos .mat, salteo.")
+            continue
+
+        for mat_file in mat_files:
+            filename = os.path.basename(mat_file)
+            name = filename.replace("_timeseries.mat", "")
+            print(f"  Procesando {filename}")
+
+            data = sio.loadmat(mat_file)
+            if "ts" not in data:
+                print(f"   ERROR: 'ts' no está en {filename}, salteo.")
+                continue
+
+            ts = data["ts"]
+
+            # =========================
+            # Cálculo de matriz ROI–ROI
+            # =========================
+            # Correlación entre series temporales de cada ROI
+            corr_matrix = np.corrcoef(ts, rowvar=False)
+
+            out_mat = os.path.join(out_cond_path, f"{name}_roi-roi.mat")
+            sio.savemat(out_mat, {"corr_matrix": corr_matrix})
+
+print("\n✔ Análisis ROI–ROI finalizado.")
