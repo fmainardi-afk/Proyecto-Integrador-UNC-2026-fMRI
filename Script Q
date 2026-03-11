@@ -1,4 +1,4 @@
-#Análisis intra-entre regiones
+#Análisis intra-entre regiones a partir de las matrices de conectividad
 
 import os
 import glob
@@ -7,10 +7,9 @@ import pandas as pd
 import scipy.io as sio
 
 
-# =========================
-# Configuración de paths y condiciones
-# =========================
+# ==============================================
 # Directorio base de matrices ROI–ROI, ruta al archivo de redes, CSV de salida y lista de condiciones
+# ==============================================
 BASE_DIR = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/ROI-ROI/Resultados/mat_correlacion"
 NET_PATH = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/ROI-ROI/atlas-funcional/network_ROIs_CommunityAffiliation.txt"
 OUT_CSV = os.path.join(BASE_DIR, "intra_inter_long.csv")
