@@ -1,0 +1,130 @@
+#Análisis intra-entre regiones
+
+import os
+import glob
+import numpy as np
+import pandas as pd
+import scipy.io as sio
+
+
+# =========================
+# Configuración de paths y condiciones
+# =========================
+# Directorio base de matrices ROI–ROI, ruta al archivo de redes, CSV de salida y lista de condiciones
+BASE_DIR = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/ROI-ROI/Resultados/mat_correlacion"
+NET_PATH = "/home/usuario/disco2/proyectos/2025-tesis-sofia-federica/Conectividad/ROI-ROI/atlas-funcional/network_ROIs_CommunityAffiliation.txt"
+OUT_CSV = os.path.join(BASE_DIR, "intra_inter_long.csv")
+COND_LIST = ["FE", "SE"]
+
+
+RUN_KEYS = {
+    "rest": ["rest"],
+    "tarea1":["tarea1", "task-tarea1", "task1", "t1"],
+    "tarea2":["tarea2", "task-tarea2", "task2", "t2"],
+}
+
+
+# =========================
+# Funciones auxiliares
+# =========================
+def detect_run(filename: str) -> str | None:
+    """Detecta el run ('rest', 'tarea1', 'tarea2') en el nombre del archivo."""
+    f = filename.lower()
+    for run, keys in RUN_KEYS.items():
+        if any(k in f for k in keys):
+            return run
+    return None
+
+
+def load_corr_matrix(mat_path: str) -> np.ndarray:
+    """
+    Carga únicamente la variable 'corr_matrix' de un .mat.
+    Lanza error si no existe para evitar usar archivos incorrectos.
+    """
+    d = sio.loadmat(mat_path)
+    if "corr_matrix" not in d:
+        keys = [k for k in d.keys() if not k.startswith("__")]
+        raise ValueError(
+            f"No encontré la variable obligatoria 'corr_matrix' en: {mat_path}\n"
+            f"Variables disponibles: {keys}"
+        )
+    M = d["corr_matrix"]
+    return np.array(M, dtype=float)
+
+
+# ========================================================================
+# Función principal: Recorre sujetos y condiciones, calcula intra/inter-correlaciones por red y guarda CSV
+# ========================================================================
+
+def main():
+    # Cargar redes (300 ROIs) y descartar redes inválidas
+    net = np.loadtxt(NET_PATH).astype(int)
+    if net.shape[0] != 300:
+        raise ValueError(f"El txt de redes no tiene 300 filas. shape={net.shape}")
+    unique_nets = sorted(set(net.tolist()))
+    if 18 in unique_nets:  # excluye ROIs "unassigned"
+        unique_nets.remove(18)
+
+    rows = []
+    subjects = sorted([d for d in os.listdir(BASE_DIR) if d.startswith("sub-") and os.path.isdir(os.path.join(BASE_DIR, d))])
+    if not subjects:
+        raise FileNotFoundError(f"No encontré carpetas sub-* en {BASE_DIR}")
+
+    for sub in subjects:
+        for cond in COND_LIST:
+            cond_dir = os.path.join(BASE_DIR, sub, cond)
+            if not os.path.isdir(cond_dir):
+                continue
+
+            mat_files = sorted(glob.glob(os.path.join(cond_dir, "*.mat")))
+            for mat_path in mat_files:
+                fname = os.path.basename(mat_path)
+                run = detect_run(fname)
+                if run is None:
+                    continue
+
+                M = load_corr_matrix(mat_path)
+                if M.shape != (300, 300):
+                    print(f"[WARN] {sub} {cond} {run}: matriz {M.shape} (esperaba 300x300). Salteo {fname}")
+                    continue
+
+                # ===================== Calcular correlaciones intra e inter por red ==============
+                for red in unique_nets:
+                    rois = np.where(net == red)[0]
+                    resto = np.where((net != red) & (net != 18))[0]
+                    if len(rois) < 2:
+                        continue
+
+                    intra = M[np.ix_(rois, rois)].copy()
+                    np.fill_diagonal(intra, np.nan)
+                    intra_mean = float(np.nanmean(intra))
+
+                    inter = M[np.ix_(rois, resto)]
+                    inter_mean = float(np.nanmean(inter))
+
+                    rows.append({
+                        "subject": sub,
+                        "cond": cond,
+                        "run": run,
+                        "network_id": int(red),
+                        "n_rois_in_network": int(len(rois)),
+                        "intra_mean": intra_mean,
+                        "inter_mean": inter_mean,
+                        "mat_file": mat_path
+                    })
+
+    # =============== Guardar CSV de resultados ==========================
+    df = pd.DataFrame(rows)
+    if df.empty:
+        raise RuntimeError("No generé filas. Revisá RUN_KEYS o que existan .mat con nombres que contengan rest/tarea1/tarea2.")
+    df.to_csv(OUT_CSV, index=False)
+    print("OK. CSV guardado en:", OUT_CSV)
+
+    # Mini-resumen
+    summary = df.groupby(["cond", "run"])["subject"].nunique().reset_index(name="n_subjects")
+    print("\nSujetos por condición y run:")
+    print(summary.to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
